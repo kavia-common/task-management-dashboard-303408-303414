@@ -18,6 +18,59 @@ class Repository:
             rows = conn.execute(text("SELECT id, name FROM task_status ORDER BY id")).mappings().all()
             return [dict(r) for r in rows]
 
+    def get_status(self, status_id: int) -> Optional[Dict[str, Any]]:
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id, name FROM task_status WHERE id = :id"),
+                {"id": status_id},
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def create_status(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        # task_status.id is SMALLINT PK but not necessarily SERIAL; allow client-specified id or rely on DB default.
+        # If id is omitted, insert only name.
+        if payload.get("id") is None:
+            sql = "INSERT INTO task_status (name) VALUES (:name) RETURNING id"
+            params = {"name": payload.get("name")}
+        else:
+            sql = "INSERT INTO task_status (id, name) VALUES (:id, :name) RETURNING id"
+            params = {"id": payload.get("id"), "name": payload.get("name")}
+
+        with self._engine.begin() as conn:
+            new_id = conn.execute(text(sql), params).scalar_one()
+
+        status_row = self.get_status(int(new_id))
+        if not status_row:
+            raise RuntimeError("Status created but could not be reloaded")
+        return status_row
+
+    def update_status(self, status_id: int, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        allowed = {"name"}
+        set_parts = []
+        params: Dict[str, Any] = {"id": status_id}
+
+        for k, v in patch.items():
+            if k not in allowed:
+                continue
+            set_parts.append(f"{k} = :{k}")
+            params[k] = v
+
+        if not set_parts:
+            return self.get_status(status_id)
+
+        sql = f"UPDATE task_status SET {', '.join(set_parts)} WHERE id = :id"
+        with self._engine.begin() as conn:
+            result = conn.execute(text(sql), params)
+            if result.rowcount == 0:
+                return None
+
+        return self.get_status(status_id)
+
+    def delete_status(self, status_id: int) -> bool:
+        with self._engine.begin() as conn:
+            result = conn.execute(text("DELETE FROM task_status WHERE id = :id"), {"id": status_id})
+            return result.rowcount > 0
+
     def list_users(self) -> List[Dict[str, Any]]:
         with self._engine.connect() as conn:
             rows = conn.execute(
@@ -25,10 +78,60 @@ class Repository:
             ).mappings().all()
             return [dict(r) for r in rows]
 
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id, name, email, created_at FROM users WHERE id = :id"),
+                {"id": user_id},
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def create_user(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        sql = """
+        INSERT INTO users (name, email)
+        VALUES (:name, :email)
+        RETURNING id
+        """
+        with self._engine.begin() as conn:
+            new_id = conn.execute(text(sql), payload).scalar_one()
+
+        user = self.get_user(int(new_id))
+        if not user:
+            raise RuntimeError("User created but could not be reloaded")
+        return user
+
+    def update_user(self, user_id: int, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        allowed = {"name", "email"}
+        set_parts = []
+        params: Dict[str, Any] = {"id": user_id}
+
+        for k, v in patch.items():
+            if k not in allowed:
+                continue
+            set_parts.append(f"{k} = :{k}")
+            params[k] = v
+
+        if not set_parts:
+            return self.get_user(user_id)
+
+        sql = f"UPDATE users SET {', '.join(set_parts)} WHERE id = :id"
+        with self._engine.begin() as conn:
+            result = conn.execute(text(sql), params)
+            if result.rowcount == 0:
+                return None
+
+        return self.get_user(user_id)
+
+    def delete_user(self, user_id: int) -> bool:
+        with self._engine.begin() as conn:
+            result = conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+            return result.rowcount > 0
+
     def list_tasks(
         self,
         status_id: Optional[int] = None,
         assignee_id: Optional[int] = None,
+        due_date: Optional[date] = None,
         due_before: Optional[date] = None,
         limit: int = 200,
         offset: int = 0,
@@ -42,6 +145,9 @@ class Repository:
         if assignee_id is not None:
             where.append("t.assignee_id = :assignee_id")
             params["assignee_id"] = assignee_id
+        if due_date is not None:
+            where.append("t.due_date = :due_date")
+            params["due_date"] = due_date
         if due_before is not None:
             where.append("t.due_date IS NOT NULL AND t.due_date <= :due_before")
             params["due_before"] = due_before

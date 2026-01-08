@@ -6,16 +6,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.engine import Engine
 
-from src.db import get_engine
 from src.api.repository import Repository
 from src.api.schemas import (
     DashboardSummary,
     Task,
     TaskCreateRequest,
     TaskStatus,
-    TaskUpdateRequest,
+    TaskStatusCreateRequest,
+    TaskStatusUpdateRequest,
     User,
+    UserCreateRequest,
+    UserUpdateRequest,
 )
+from src.db import get_engine
 
 router = APIRouter()
 
@@ -38,6 +41,84 @@ def list_statuses(repo: Repository = Depends(_get_repo)):
 
 
 @router.get(
+    "/statuses/{status_id}",
+    response_model=TaskStatus,
+    tags=["Statuses"],
+    summary="Get task status",
+    description="Get a single task status by id.",
+    operation_id="getStatus",
+)
+def get_status(status_id: int, repo: Repository = Depends(_get_repo)):
+    """Get a task status by id."""
+    status_row = repo.get_status(status_id)
+    if not status_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Status not found")
+    return status_row
+
+
+@router.post(
+    "/statuses",
+    response_model=TaskStatus,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Statuses"],
+    summary="Create task status",
+    description="Create a new task status lookup value. Typically used only by admins/dev.",
+    operation_id="createStatus",
+)
+def create_status(payload: TaskStatusCreateRequest, repo: Repository = Depends(_get_repo)):
+    """Create a task status."""
+    try:
+        return repo.create_status(payload.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create status: {e}") from e
+
+
+@router.patch(
+    "/statuses/{status_id}",
+    response_model=TaskStatus,
+    tags=["Statuses"],
+    summary="Update task status",
+    description="Update a status name by id.",
+    operation_id="updateStatus",
+)
+def update_status(
+    status_id: int, payload: TaskStatusUpdateRequest, repo: Repository = Depends(_get_repo)
+):
+    """Update a task status."""
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    try:
+        updated = repo.update_status(status_id, patch)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update status: {e}") from e
+
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Status not found")
+    return updated
+
+
+@router.delete(
+    "/statuses/{status_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Statuses"],
+    summary="Delete task status",
+    description=(
+        "Delete a status by id. Note: If tasks reference this status, the DB will reject the delete."
+    ),
+    operation_id="deleteStatus",
+)
+def delete_status(status_id: int, repo: Repository = Depends(_get_repo)):
+    """Delete a task status."""
+    try:
+        ok = repo.delete_status(status_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not delete status: {e}") from e
+
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Status not found")
+    return None
+
+
+@router.get(
     "/users",
     response_model=List[User],
     tags=["Users"],
@@ -51,6 +132,79 @@ def list_users(repo: Repository = Depends(_get_repo)):
 
 
 @router.get(
+    "/users/{user_id}",
+    response_model=User,
+    tags=["Users"],
+    summary="Get user",
+    description="Get a single user by id.",
+    operation_id="getUser",
+)
+def get_user(user_id: int, repo: Repository = Depends(_get_repo)):
+    """Get a user by id."""
+    user = repo.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
+@router.post(
+    "/users",
+    response_model=User,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Users"],
+    summary="Create user",
+    description="Create a new user record for task assignment.",
+    operation_id="createUser",
+)
+def create_user(payload: UserCreateRequest, repo: Repository = Depends(_get_repo)):
+    """Create a user."""
+    try:
+        return repo.create_user(payload.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create user: {e}") from e
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=User,
+    tags=["Users"],
+    summary="Update user",
+    description="Update a user's name and/or email.",
+    operation_id="updateUser",
+)
+def update_user(user_id: int, payload: UserUpdateRequest, repo: Repository = Depends(_get_repo)):
+    """Update a user."""
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    try:
+        updated = repo.update_user(user_id, patch)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update user: {e}") from e
+
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return updated
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Users"],
+    summary="Delete user",
+    description=(
+        "Delete a user by id. Existing tasks assigned to this user will be unassigned "
+        "(assignee_id set NULL) due to ON DELETE SET NULL."
+    ),
+    operation_id="deleteUser",
+)
+def delete_user(user_id: int, repo: Repository = Depends(_get_repo)):
+    """Delete a user."""
+    ok = repo.delete_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return None
+
+
+@router.get(
     "/tasks",
     response_model=List[Task],
     tags=["Tasks"],
@@ -61,6 +215,7 @@ def list_users(repo: Repository = Depends(_get_repo)):
 def list_tasks(
     status_id: Optional[int] = Query(None, description="Filter by status_id"),
     assignee_id: Optional[int] = Query(None, description="Filter by assignee_id"),
+    due_date: Optional[date] = Query(None, description="Filter by exact due_date"),
     due_before: Optional[date] = Query(None, description="Filter by due date <= due_before"),
     limit: int = Query(200, ge=1, le=500, description="Max number of tasks to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -70,6 +225,7 @@ def list_tasks(
     return repo.list_tasks(
         status_id=status_id,
         assignee_id=assignee_id,
+        due_date=due_date,
         due_before=due_before,
         limit=limit,
         offset=offset,

@@ -15,11 +15,44 @@ class User(BaseModel):
     created_at: datetime = Field(..., description="Creation timestamp (UTC)")
 
 
+class UserCreateRequest(BaseModel):
+    """Request payload to create a user."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Full name")
+    email: str = Field(..., min_length=3, max_length=255, description="Unique email address")
+
+
+class UserUpdateRequest(BaseModel):
+    """Request payload to update a user."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="Full name")
+    email: Optional[str] = Field(None, min_length=3, max_length=255, description="Unique email address")
+
+
 class TaskStatus(BaseModel):
     """A task status lookup value."""
 
     id: int = Field(..., description="Status ID (lookup)")
     name: str = Field(..., description="Status name, e.g. 'To Do'")
+
+
+class TaskStatusCreateRequest(BaseModel):
+    """Request payload to create a task status.
+
+    Note: in the provided DB schema, task_status.id is a SMALLINT PK and seeded with
+    well-known values (1..3). For most apps you won't create new statuses at runtime.
+    """
+
+    id: Optional[int] = Field(
+        None, ge=1, le=32767, description="Optional status id (SMALLINT). If omitted, DB must supply."
+    )
+    name: str = Field(..., min_length=1, max_length=50, description="Status name")
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    """Request payload to update a task status."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=50, description="Status name")
 
 
 class Task(BaseModel):
@@ -54,7 +87,9 @@ class TaskUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, description="Task description")
     status_id: Optional[int] = Field(None, description="New status_id")
     due_date: Optional[date] = Field(None, description="Due date")
-    assignee_id: Optional[int] = Field(None, description="Assignee user id (nullable; set null to unassign)")
+    assignee_id: Optional[int] = Field(
+        None, description="Assignee user id (nullable; set null to unassign)"
+    )
 
 
 class TaskListFilters(BaseModel):
@@ -62,6 +97,7 @@ class TaskListFilters(BaseModel):
 
     status_id: Optional[int] = Field(None, description="Filter by status_id")
     assignee_id: Optional[int] = Field(None, description="Filter by assignee_id")
+    due_date: Optional[date] = Field(None, description="Filter by exact due_date")
     due_before: Optional[date] = Field(None, description="Filter tasks due on/before this date")
 
 
