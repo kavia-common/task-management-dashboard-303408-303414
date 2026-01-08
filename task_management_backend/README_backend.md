@@ -2,19 +2,27 @@
 
 This backend exposes REST APIs for users, tasks, statuses, and a dashboard summary backed by PostgreSQL.
 
+All routes are mounted under `/api` via `app.include_router(..., prefix="/api")`.
+
 ## Required environment variables
 
 - `DATABASE_URL` (preferred): SQLAlchemy connection string to PostgreSQL  
-  Example (local DB container):  
+  Example (matches the DB container’s `db_connection.txt`):  
   `postgresql+psycopg2://appuser:dbuser123@localhost:5000/myapp`
 
 - `DB_URL` (fallback): if your environment uses `DB_URL` instead of `DATABASE_URL`
 
-Optional:
+Optional (pool tuning):
 - `DB_POOL_SIZE` (default `5`)
 - `DB_MAX_OVERFLOW` (default `10`)
 
-You can copy `.env.example` to your own `.env` (do not commit secrets).
+## Local ports / connectivity notes
+
+- Frontend dev server: `http://localhost:3000`
+- Backend API base URL (expected by the frontend `.env.example`): `http://localhost:3001`
+- Database (from `task_management_database/db_connection.txt`): `postgresql://appuser:dbuser123@localhost:5000/myapp`
+
+> Note: The backend reads `DATABASE_URL`/`DB_URL` and normalizes `postgresql://` to `postgresql+psycopg2://` automatically.
 
 ## CORS
 
@@ -32,8 +40,6 @@ FastAPI’s built-in docs are available at:
 - ReDoc: `/redoc`
 - Raw OpenAPI JSON: `/openapi.json`
 - Additional usage helper: `/docs/help`
-
-All routes are mounted under `/api` via `app.include_router(..., prefix="/api")`.
 
 ## API overview
 
@@ -74,21 +80,42 @@ All routes are mounted under `/api` via `app.include_router(..., prefix="/api")`
 
 ## Manual verification (smoke checks)
 
-Assuming the backend is running locally (for example via `uvicorn src.api.main:app --reload`):
+Assuming the backend is running locally on port `3001` (do not change preview ports):
 
 ```bash
-curl -s http://localhost:8000/ | jq
-curl -s http://localhost:8000/api/health/db | jq
+curl -s http://localhost:3001/ | jq
+curl -s http://localhost:3001/api/health/db | jq
 
-curl -s http://localhost:8000/api/statuses | jq
-curl -s http://localhost:8000/api/users | jq
+curl -s http://localhost:3001/api/statuses | jq
+curl -s http://localhost:3001/api/users | jq
 
-curl -s "http://localhost:8000/api/tasks?limit=10" | jq
-curl -s "http://localhost:8000/api/tasks?status_id=1" | jq
-curl -s "http://localhost:8000/api/tasks?assignee_id=1" | jq
-curl -s "http://localhost:8000/api/tasks?due_before=2026-01-31" | jq
+curl -s "http://localhost:3001/api/tasks?limit=10" | jq
+curl -s "http://localhost:3001/api/tasks?status_id=1" | jq
+curl -s "http://localhost:3001/api/tasks?assignee_id=1" | jq
+curl -s "http://localhost:3001/api/tasks?due_before=2026-01-31" | jq
 
-curl -s http://localhost:8000/api/dashboard/summary | jq
+curl -s http://localhost:3001/api/dashboard/summary | jq
+```
+
+## E2E smoke script (recommended)
+
+A lightweight script is included to validate core flows across endpoints.
+
+It checks:
+- `/api/health/db`
+- create/list/update tasks
+- assign/unassign user
+- filters: `assignee_id`, `status_id`, `due_before`
+- `/api/dashboard/summary`
+
+Run:
+
+```bash
+# Default base URL: http://localhost:3001
+python -m src.e2e_smoke
+
+# Or override:
+E2E_API_BASE_URL=http://localhost:3001 python -m src.e2e_smoke
 ```
 
 ## Notes / current environment caveat
