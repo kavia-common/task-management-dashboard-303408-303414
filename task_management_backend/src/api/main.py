@@ -1,7 +1,10 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
 from src.api.routes import router as api_router
+from src.db import get_engine
 
 openapi_tags = [
     {"name": "Statuses", "description": "Task status lookup endpoints."},
@@ -21,9 +24,10 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
+# Allow local frontend dev server. Add more origins as needed for staging/prod.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +53,30 @@ def health_check():
 
 
 @app.get(
+    "/api/health/db",
+    tags=["Health"],
+    summary="Database connectivity health check",
+    description="Attempts a lightweight `SELECT 1` against the configured PostgreSQL database.",
+    operation_id="healthCheckDb",
+)
+def health_check_db(engine: Engine = Depends(get_engine)):
+    """Database health check endpoint.
+
+    This endpoint verifies that the backend can connect to the configured database
+    (via DATABASE_URL preferred; falling back to DB_URL) by executing `SELECT 1`.
+
+    Returns:
+        dict: {ok: bool, error?: str}
+    """
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get(
     "/docs/help",
     tags=["Health"],
     summary="API usage help",
@@ -70,6 +98,7 @@ def docs_help():
         "example_DATABASE_URL": "postgresql+psycopg2://appuser:dbuser123@localhost:5000/myapp",
         "base_path": "/api",
         "endpoints": {
+            "db_health": "/api/health/db",
             "statuses": "/api/statuses",
             "users": "/api/users",
             "tasks": "/api/tasks",
