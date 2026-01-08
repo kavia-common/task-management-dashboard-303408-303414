@@ -11,6 +11,7 @@ from src.api.schemas import (
     DashboardSummary,
     Task,
     TaskCreateRequest,
+    TaskUpdateRequest,
     TaskStatus,
     TaskStatusCreateRequest,
     TaskStatusUpdateRequest,
